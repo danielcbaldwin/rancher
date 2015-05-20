@@ -1,5 +1,5 @@
 #!/bin/bash
-# rancher - script helps manage unicorn by passing signal on to it and keeping its own process alive \
+# rancher - helps manage unicorn by passing signal on to it and keeping its own process alive \
 #  when unicorn doing its "always up" restarts, mainly this is used to keep things like foreman, \
 #  upstart, and supervisor happy
 #
