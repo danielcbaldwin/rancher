@@ -1,0 +1,128 @@
+#!/bin/bash
+# rancher - script helps manage unicorn by passing signal on to it and keeping its own process alive \
+#  when unicorn doing its "always up" restarts, mainly this is used to keep things like foreman, \
+#  upstart, and supervisor happy
+#
+# rancher <pid file> <command>
+#  <pid file>   the pid file location where unicorn places its pid file
+#  <command>    the unicorn command to run e.g. bundle exec unicorn -c ./config/unicorn.rb
+#
+# Created by Daniel Baldwin
+
+set -e
+
+NAME="rancher"
+TIMEOUT=60
+RESTARTING=false
+WATCH_PID_FILE=$1
+PID_FILE="$(dirname $WATCH_PID_FILE)/$NAME.pid"
+PID=$$
+
+create_pid() {
+  (
+    echo $PID > $PID_FILE
+  ) || (
+    PID_FILE="/tmp/$NAME.pid"
+    echo $PID > $PID_FILE
+  ) || (
+    echo "Couldnt create pid file for process"
+    exit 0
+  )
+}
+
+cleanup() {
+  [ -f $PID_FILE ] && rm $PID_FILE
+}
+
+get_pid() {
+  echo $(cat $WATCH_PID_FILE)
+}
+
+trap_usr2() {
+  # Gracefully restart
+  RESTARTING=true
+  old_pid=$(get_pid)
+  kill -USR2 $old_pid
+  (
+    start=$(date +"%s")
+    while ( true ); do
+      [ "$(($(date +"%s")-$start))" -ge "$TIMEOUT" ] && exit 1;
+      if [ -f $WATCH_PID_FILE ]; then
+        [ $old_pid != $(get_pid) ] && break;
+      fi
+      sleep 0.1
+    done
+  ) || (
+    echo "Restart Failed"
+    kill -TERM $PID
+  )
+  unset old_pid
+  kill -USR1 $(get_pid)
+  RESTARTING=false
+}
+trap "trap_usr2" SIGUSR2
+
+trap_hup() {
+  # Reload configs
+  kill -HUP $(get_pid)
+}
+trap "trap_hup" SIGHUP
+
+trap_ttin() {
+  # Add a worker
+  kill -TTIN $(get_pid)
+}
+trap "trap_ttin" SIGTTIN
+
+trap_ttou() {
+  # Remove a worker
+  kill -TTOU $(get_pid)
+}
+trap "trap_ttou" SIGTTOU
+
+trap_quit() {
+  echo "Gracefully Stopping ($(get_pid))"
+  kill -QUIT $(get_pid)
+  while [ -f $WATCH_PID_FILE ]; do
+    sleep 0.1
+  done
+  cleanup
+  exit 0
+}
+trap "trap_quit" QUIT
+
+trap_term() {
+  echo "Shutting Down ($(get_pid))"
+  kill -TERM $(get_pid)
+  while [ -f $WATCH_PID_FILE ]; do
+    sleep 0.1
+  done
+  cleanup
+  exit 0
+}
+trap "trap_term" SIGINT SIGTERM
+
+(
+  start=$(date +"%s")
+
+  ${*:2} & 1>&2
+
+  while [ ! -f $WATCH_PID_FILE ]; do
+    [ "$(($(date +"%s")-$start))" -ge "$TIMEOUT" ] && exit 1;
+    sleep 0.1
+  done
+
+  echo "Process started ($(get_pid))"
+  create_pid
+) || (
+  echo "Could not start process"
+  cleanup
+  exit 0
+)
+
+while [ -f $PID_FILE ]; do
+  [[ ! -f $WATCH_PID_FILE && $RESTARTING = false ]] && break;
+  sleep 0.1
+done
+
+cleanup
