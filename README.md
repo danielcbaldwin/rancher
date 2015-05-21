@@ -10,3 +10,14 @@ This is intended as a lighter bash alternative to Unicorn Herder (https://github
    <pid file>   the pid file location where unicorn places its pid file
    <command>    the unicorn command to run e.g. bundle exec unicorn -c ./config/unicorn.rb
 ```
+
+Rancher outputs a pid file named "rancher.pid" in the same directory as the pid file it is watching if it can and in /tmp if it cant. So you can send signals to unicorn through rancher using something like:
+
+```
+kill -USR2 $(cat /tmp/rancher.pid)
+kill -TTIN $(cat /tmp/rancher.pid)
+kill -TTOU $(cat /tmp/rancher.pid)
+kill -HUP $(cat /tmp/rancher.pid)
+kill -TERM $(cat /tmp/rancher.pid)
+kill -QUIT $(cat /tmp/rancher.pid)
+```
